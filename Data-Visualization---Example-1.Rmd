@@ -1,0 +1,276 @@
+---
+title: "Annual variations of weather variables in the Sartenejas Valley"
+author: "Rizcalla Antonio Akel Cordovez"
+date: "2020-07-15"
+output:
+  html_document:
+    df_print: tibble
+    fig_caption: yes
+    fig_width: 10
+  pdf_document: 
+    latex_engine: xelatex
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, echo=FALSE,warning=FALSE,include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+lapply(c("tidyverse","lubridate","gridExtra","gganimate","zoo","ggthemes","hms","viridis"),function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  })
+
+dat <- read.csv("meteoUSB.csv")
+dat$dateTime <- as.POSIXct(dat$dateTime, origin="1970-01-01 00:00:00")
+```
+
+## Description of the Data
+
+The Remote Sensors Laboratory (LSR) of the Simón Bolívar University, attached to the Department of Environmental Studies, maintains a constant record of the values of various environmental variables on the university campus within the Sartenejas Valley, Baruta Municipality, Miranda, with a Vantage Pro2 Plus kit (Davis Instruments). These variables are:
+
+- Atmospheric pressure (inHg)
+- Outside temperature (° F)
+- RH (%)
+- Wind speed (M / h)
+- Wind direction (0-360 ° N)
+- Burst speed (M / h)
+- Burst direction (0-360 ° N)
+- Average Rain (in / h)
+- Precipitation (in)
+- Radiation (W / m2)
+
+
+--------------------------
+
+
+1. A manual and visual exploration of the data recorded by the sensors of the LSR of the Simón Bolívar University was carried out. Said records correspond to the time range * 2015-08-02 18:50:00 - 2018-02-01 00:10:00 "America / Caracas" *.
+
+2. The totality of missing or possibly badly recorded data was determined for each variable.
+   - Those variables that were considered adequate for this study were selected due to their integrity.
+
+3. For the analysis carried out, a temporal subset of the database was generated with the variables ** dateTime, outTemp, radiation **, from which the following variables were derived:
+
+   - y: Year in which the observation was made.
+   - day: Day of the month in which the observation was made.
+   - month: Month of the year in which the observation was made.
+   - yday: Day of the year in which the observation was made.
+   - maxradiation: Maximum radiation recorded on the day and year of the observation (W / m2).
+   - maxoutTemp: Maximum temperature recorded on the day and year of the observation (° C).
+   - minoutTemp: Minimum temperature recorded on the day and year of the observation (° C).
+   - meanoutTemp: Average temperature recorded on the day and year of the observation (° C).
+
+
+--------------------------------
+
+
+```{r, echo=FALSE,warning=FALSE, include=FALSE}
+#Se generó un subconjunto temporal de la base de datos
+temp <- dat %>% select(dateTime,outTemp,radiation) %>% mutate(y = year(dateTime), month = month(dateTime), day = day(dateTime), yday = yday(dateTime),outTemp = (outTemp-32)*(5/9))
+
+months <- factor(c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"),levels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"), ordered = T)
+
+#Vamos a extraer los valores máximos, mínimos y medios de temperatura diaria y la radiación máxima diaria
+y <- NA
+day <- NA
+month <- NA
+yday <- NA
+maxradiation <- NA
+maxoutTemp <- NA
+minoutTemp <- NA
+meanoutTemp <- NA
+
+k=0
+for (i in 2015:2018){
+  z <- subset(temp, y == i)
+  a <- min(z$yday)
+  b <- max(z$yday)
+  for(j in a:b){
+    k = k+1
+    zd <- subset(z, yday == j)
+    y[k] <- i
+    yday[k] <- j
+    maxradiation[k] <- max(zd$radiation)
+    maxoutTemp[k] <- max(zd$outTemp)
+    minoutTemp[k] <- min(zd$outTemp)
+    meanoutTemp[k] <- mean(zd$outTemp)
+    month[k] <- median(zd$month)
+    day[k] <- median(zd$day)
+    }
+}
+
+#Hacemos un data.frame con los datos extraídos
+tempd <- data.frame(y,month,day,yday,maxradiation,maxoutTemp,minoutTemp,meanoutTemp)
+
+#Completamos los valores erroneos o faltantes con NA para fines de la visualización de los datos
+b <- length(tempd$y)
+for (i in 1:b) {
+  for (j in 5:8) {
+    tempd[i,j] <- ifelse(tempd[i,j] <0 | tempd[i,j] > 1500 , NA, tempd[i,j])
+  }
+}
+
+#Completamos las fechas
+for (i in 1:b) {
+  if(is.na(tempd[i,1])) tempd[i,1] <- tempd[i-1,1]
+  if(is.na(tempd[i,2])) tempd[i,2] <- tempd[i-1,2]
+  if(is.na(tempd[i,3])) tempd[i,3] <- (1 + tempd[i-1,3])
+  if(is.na(tempd[i,4])) tempd[i,4] <- (1 + tempd[i-1,4])
+}
+
+#Limpiamos
+rm(a)
+rm(b)
+rm(i)
+rm(j)
+rm(k)
+rm(y)
+rm(z)
+rm(zd)
+rm(temp)
+rm(day)
+rm(yday)
+rm(month)
+rm(maxradiation)
+rm(maxoutTemp)
+rm(minoutTemp)
+rm(meanoutTemp)
+
+```
+
+```{r, echo=FALSE,warning=FALSE}
+#Graficamos nuestras variables extraídas para observar su comportamiento a lo largo del año. Suavizamos con el método de medias móviles
+
+p1 <- tempd %>% mutate(y = factor(y, levels = unique(y))) %>% ggplot(aes(yday,color=y))+
+  geom_line(aes(y=rollmean(maxoutTemp,15, na.pad = T)))+
+  geom_line(aes(y=rollmean(minoutTemp,15, na.pad = T)))+
+  geom_line(aes(y=rollmean(meanoutTemp,15, na.pad = T)))+
+  scale_color_discrete(name = "Year")+
+  ggtitle("Figure 1 - Temperature throughout the year (Moving Average)")+
+  xlab("Day of the Year")+
+  ylab("Temperature (°C)")+
+  annotate("text", label = "Max", x = 0, y = 26) +
+  annotate("text", label = "Mean", x =0, y = 21)+
+  annotate("text", label = "Min", x =0, y = 14)
+           
+p2 <- tempd %>% mutate(y = factor(y, levels = unique(y))) %>% ggplot(aes(yday,maxradiation,color=y))+
+  geom_line(aes(y=rollmean(maxradiation,15, na.pad = T)))+
+  scale_color_discrete(name = "Year")+
+  ggtitle("Figure 2 - Solar Radiation throughout the year (Moving Average)")+
+  xlab("Day of the Year")+
+  ylab("Max radiation (W/m2)")
+
+grid.arrange(p1,p2)
+```
+
+
+Figure 1 shows how **temperatures** throughout each year seem to behave in a similar way in the same time ranges or seasons. However, for each month there seem to be differences between the maximum, average and minimum values recorded, between 2016 and 2017, with the latter apparently below the previous one in several cases. In the same way, we can observe in Figure 2 that the levels of **maximum registered radiation** seem to have a regular behavior depending on the different seasons or periods of the year. When comparing each year, some differences are observed in the levels of maximum radiation recorded at different points of the year. A difference is especially observed for the end and the beginning of Q1 and Q2, respectively, between the years 2016 and 2017.
+
+
+### Monthly temperatures
+```{r, echo=FALSE,warning=FALSE}
+#Generamos los conjuntos de datos para cada año excluyendo los días sin valores registrados para no generar valores distorsionados de las temperaturas medias mensuales más adelante.
+tempd16 <- tempd %>% filter(y == 2016 & !is.na(meanoutTemp))
+tempd17 <- tempd %>% filter(y == 2017 & !is.na(meanoutTemp))
+
+#Graficamos las temperaturas medias mensuales por año
+p1 <- tempd16 %>% mutate(month = factor(month, levels = unique(month))) %>% group_by(month) %>% ggplot(aes(x = month,y = meanoutTemp ))+
+  geom_boxplot()+
+  xlab("Month")+
+  ylab("Temperature (°C)")+
+  ggtitle("Figure 3 - Monthly Average Temperatures - 2016")
+
+p2 <- tempd17 %>% mutate(month = factor(month, levels = unique(month))) %>% group_by(month) %>% ggplot(aes(x = month,y = meanoutTemp ))+
+  geom_boxplot()+
+  xlab("Month")+
+  ylab("Temperature (°C)")+
+  ggtitle("Figure 4 - Monthly Average Temperatures - 2017")
+
+
+grid.arrange(p1,p2)
+```
+In Figures 3 and 4 it can be seen that the distribution followed by the means seems to be associated with specific seasons and months of the year.
+
+### Monthly radiation
+```{r, echo=FALSE,warning=FALSE}
+
+#Graficamos los niveles de radiación máxima mensuales
+p1 <- tempd16 %>% mutate(month = factor(month, levels = unique(month))) %>% group_by(month) %>% ggplot(aes(x = month,y = maxradiation ))+
+  geom_boxplot()+
+  xlab("Month")+
+  ylab("Radiation (W/m2)")+
+  ggtitle("Figure 5 - Maximum monthly registered radiation - 2016")
+
+p2 <- tempd17 %>% mutate(month = factor(month, levels = unique(month))) %>% group_by(month) %>% ggplot(aes(x = month,y = maxradiation ))+
+  geom_boxplot()+
+  xlab("Month")+
+  ylab("Radiation (W/m2)")+
+  ggtitle("Figure 6 - Maximum monthly registered radiation - 2017")
+
+
+grid.arrange(p1,p2)
+```
+In Figures 5 and 6 we can see that the distribution that the maximum radiation records follow in each month seems to be distributed more or less regularly throughout the year, although it is still possible to see annual maximums and minimums.
+
+___
+
+## Heatmap example
+
+```{r, echo=FALSE}
+
+dat2 <- dat %>% select(dateTime,outTemp) %>% filter(month(dateTime) == 1 & year(dateTime) == 2016) %>% mutate(Date = date(dateTime), Hour = as_hms(ymd_hms(dateTime)), Temperature = outTemp) %>% select(Date,Hour,Temperature)
+
+dat2 %>% ggplot(aes(x = Date, y = Hour, fill = ((Temperature-32)*5/9)))+
+  geom_tile()+
+  scale_fill_viridis(option = "magma")+
+  scale_x_date(expand = c(0,0),date_breaks = "1 day")+
+  scale_y_time(breaks = seq(0,3600*23,3600))+
+  theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(), axis.text.x = element_text(angle = 90))+
+  labs(title = "Daily temperatures through January 2016", x = "Day of the Month", y = "Time of the Day", fill = "Temperature (ºC)")
+  
+
+```
+
+___
+
+## Animated examples
+
+```{r, echo=FALSE,warning=FALSE}
+#Versión animada de la Figura 1
+
+p1 <- tempd %>% mutate(y = factor(y, levels = unique(y))) %>% ggplot(aes(yday,maxoutTemp,color=y))+
+  geom_line(aes(y=rollmean(maxoutTemp,15, na.pad = T)))+
+  geom_point(aes(y=rollmean(maxoutTemp,15, na.pad = T)))+
+  geom_line(aes(y=rollmean(minoutTemp,15, na.pad = T)))+
+  geom_point(aes(y=rollmean(minoutTemp,15, na.pad = T)))+
+  geom_line(aes(y=rollmean(meanoutTemp,15, na.pad = T)))+
+  geom_point(aes(y=rollmean(meanoutTemp,15, na.pad = T)))+
+  scale_color_discrete(name = "Year")+
+  ggtitle("Temperature over the year (Moving Average)")+
+  xlab("Day of the Year")+
+  ylab("Temperature (°C)")+
+  annotate("text", label = "Max", x = 0, y = 26) +
+  annotate("text", label = "Mean", x = 0, y = 21)+
+  annotate("text", label = "Min", x = 0, y = 12)+
+  transition_reveal(yday)
+animate(p1)
+
+```
+
+```{r, echo=FALSE,warning=FALSE, exclude = TRUE ,include=knitr::is_html_output()}
+#Versión animada de Figura 2
+p2 <- tempd %>% mutate(y = factor(y, levels = unique(y))) %>% ggplot(aes(yday,maxradiation,color=y))+
+  geom_line(aes(y=rollmean(maxradiation,15, na.pad = T)))+
+  geom_point(aes(y=rollmean(maxradiation,15, na.pad = T)))+
+  scale_color_discrete(name = "Year")+
+  xlab("Day of the Year")+
+  ylab("Max radiation (W/m2)")+
+  ggtitle("Max radiation over the year (Moving Average)")+
+  transition_reveal(yday)
+animate(p2)
+```
+___
+
+Code can be consulted in: https://github.com/Rizcalla/Data-Visualization---Example-1.git
